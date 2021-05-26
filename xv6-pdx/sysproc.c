@@ -6,6 +6,7 @@
 #include "memlayout.h"
 #include "mmu.h"
 #include "proc.h"
+#include "uproc.h" // CS333_P2
 #ifdef PDX_XV6
 #include "pdx-kernel.h"
 #endif // PDX_XV6
@@ -112,3 +113,66 @@ sys_date(void)
 	}
 }
 #endif //CS333_P1
+
+#ifdef CS333_P2
+uint
+sys_getuid(void)
+{
+  return myproc()->uid;
+}
+
+uint
+sys_getgid(void)
+{
+  return myproc()->gid;
+}
+
+uint
+sys_getppid(void)
+{
+  return myproc()->parent->pid;
+}
+
+int
+sys_setuid(void)
+{
+  int n;
+  if(argint(0, &n) < 0){
+    return -1;
+  }
+  if(n < 0 || n > 32767){
+    return -1;
+  }
+  myproc()->uid = n;
+  return 0;
+}
+
+int
+sys_setgid(void)
+{
+  int n;
+  if(argint(0, &n) < 0){
+    return -1;
+  }
+  if(n < 0 || n > 32767){
+    return -1;
+  }
+  myproc()->gid = n;
+  return 0;
+}
+
+int
+sys_getprocs(void)
+{
+  int max;
+  struct uproc* table;
+
+  if(argint(0, &max) < 0){
+    return -1;
+  }
+  if(argptr(1, (void*) &table, sizeof(struct uproc) * max) < 0){
+    return -1;
+  }
+  return getprocs(max,table);
+}
+#endif // CS333_P2
