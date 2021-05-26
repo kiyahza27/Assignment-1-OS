@@ -6,6 +6,7 @@
 #include "x86.h"
 #include "proc.h"
 #include "spinlock.h"
+#include "uproc.h" //CS333_P2
 
 static char *states[] = {
   [UNUSED]    "unused",
@@ -151,6 +152,12 @@ allocproc(void)
 #ifdef CS333_P1
   p->start_ticks = ticks;
 #endif //CS333_P1
+
+#ifdef CS333_P2
+  p->cpu_ticks_total = 0;
+  p->cpu_ticks_in = 0;
+#endif //CS333_P2
+  
   return p;
 }
 
@@ -177,6 +184,12 @@ userinit(void)
   p->tf->eflags = FL_IF;
   p->tf->esp = PGSIZE;
   p->tf->eip = 0;  // beginning of initcode.S
+
+#ifdef CS333_P2
+  p->parent = p;
+  p->uid = DEFAULT_UID;
+  p->gid = DEFAULT_GID;
+#endif //CS333_P2
 
   safestrcpy(p->name, "initcode", sizeof(p->name));
   p->cwd = namei("/");
@@ -237,6 +250,11 @@ fork(void)
   np->sz = curproc->sz;
   np->parent = curproc;
   *np->tf = *curproc->tf;
+
+#ifdef CS333_P2
+  np->uid = curproc->uid;
+  np->gid = curproc->gid;
+#endif // CS333_P2
 
   // Clear %eax so that fork returns 0 in the child.
   np->tf->eax = 0;
@@ -391,6 +409,11 @@ scheduler(void)
       c->proc = p;
       switchuvm(p);
       p->state = RUNNING;
+	  
+#ifdef CS333_P2
+	  p->cpu_ticks_in = ticks;
+#endif // CS333_P2
+	  
       swtch(&(c->scheduler), p->context);
       switchkvm();
 
@@ -431,6 +454,11 @@ sched(void)
   if(readeflags()&FL_IF)
     panic("sched interruptible");
   intena = mycpu()->intena;
+  
+#ifdef CS333_P2
+  p->cpu_ticks_total += ticks - p->cpu_ticks_in;
+#endif // CS333_P2
+  
   swtch(&p->context, mycpu()->scheduler);
   mycpu()->intena = intena;
 }
@@ -558,10 +586,38 @@ kill(int pid)
 void
 procdumpP2P3P4(struct proc *p, char *state_string)
 {
-  cprintf("TODO for Project 2, delete this line and implement procdumpP2P3P4() in proc.c to print a row\n");
+  // cprintf("TODO for Project 2, delete this line and implement procdumpP2P3P4() in proc.c to print a row\n");
+  
+  uint elapsed;
+  uint millsec;
+  uint sec;
+  uint cpu;
+  uint cpu_sec;
+  uint cpu_millsec;
+  uint ppid;
+  
+  if(p->parent)
+  {
+    ppid = p->parent->pid;
+  }
+  else
+  {
+    ppid = p->pid;
+  }
+  
+  elapsed = ticks - p->start_ticks;
+  sec = elapsed / 1000;
+  millsec = elapsed % 1000;
+  cpu = p->cpu_ticks_total;
+  cpu_sec = cpu/1000;
+  cpu_millsec = cpu%1000;
+
+  cprintf("%d\t%s\t\t%d\t%d\t%d\t%d.%d\t%d.%d\t%s\t%d\t", p->pid, p->name, p->uid, p->gid, ppid,  sec, millsec, cpu_sec, cpu_millsec, state_string, p->sz);
   return;
 }
-#elif defined(CS333_P1)
+#endif //CS333_P2
+	
+#if defined(CS333_P1)
 void
 procdumpP1(struct proc *p, char *state_string)
 {
@@ -576,6 +632,7 @@ procdumpP1(struct proc *p, char *state_string)
 }
 #endif //CS333_P1
 
+
 void
 procdump(void)
 {
@@ -583,6 +640,7 @@ procdump(void)
   struct proc *p;
   char *state;
   uint pc[10];
+
 
 #if defined(CS333_P4)
 #define HEADER "\nPID\tName         UID\tGID\tPPID\tPrio\tElapsed\tCPU\tState\tSize\t PCs\n"
@@ -606,8 +664,11 @@ procdump(void)
 
     // see TODOs above this function
     // P2 and P3 are identical and the P4 change is minor
+	
 #if defined(CS333_P2)
     procdumpP2P3P4(p, state);
+#elif defined(CS333_P1)
+    procdumpP1(p, state);
 #elif defined(CS333_P1)
     procdumpP1(p, state);
 #else
@@ -625,6 +686,39 @@ procdump(void)
   cprintf("$ ");  // simulate shell prompt
 #endif // CS333_P1
 }
+
+#ifdef CS333_P2
+int
+getprocs(uint max, struct uproc* table)
+{
+  int count = 0;
+  struct proc* p = ptable.proc;
+
+  acquire(&ptable.lock);
+  while(p < &ptable.proc[NPROC] && count < max) {
+    if(p->state != UNUSED && p->state != EMBRYO) {
+      table->pid = p->pid;
+      table->uid = p->uid;
+      table->gid = p->gid;
+      ++count;
+      if(p->parent)
+        table->ppid = p->parent->pid;
+      else
+        table->ppid = p->pid;
+      table->elapsed_ticks = (ticks - p->start_ticks);
+      table->CPU_total_ticks = p->cpu_ticks_total;
+      safestrcpy(table->state, states[p->state], STRMAX);
+      table->size = p->sz;
+      safestrcpy(table->name, p->name, STRMAX);
+      ++table;
+    }
+    ++p;
+  }
+  release(&ptable.lock);
+  return count;
+}
+#endif // CS333_P2
+
 
 #if defined(CS333_P3)
 // list management helper functions
